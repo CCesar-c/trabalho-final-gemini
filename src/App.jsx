@@ -2,20 +2,27 @@
 // Gerenciador de rotas
 import { useState } from 'react'
 import { Routes, Route } from "react-router-dom";
-import Home from './pages/Home';
+
+import Entrada from './pages/Entrada.jsx';
 import PageError from './pages/PageError';
+import Diagnostico from './pages/Diagnostico.jsx'
+import Trilha from './pages/Trilha.jsx'
+import Topico from './pages/Topico.jsx'
+import Painel from './pages/Painel.jsx'
+
 import EstudanteProvider from "./contexts/EstudanteContext.jsx";
+
 import './style/.css'
 
 function App() {
   return (
     <EstudanteProvider>
-      <Routes>
-        <Route path='/' Component={Home} />
-        <Route path='/diagnostico' Component={} />
-        <Route path='/trilha' Component={Home} />
-        <Route path='/topico/:id' Component={Home} />
-        <Route path='/painel' Component={Home} />
+      <Routes  >
+        <Route index  path='/' Component={Entrada} />
+        <Route path='/diagnostico' Component={Diagnostico} />
+        <Route path='/trilha' Component={Trilha} />
+        <Route path='/topico/:id' Component={Topico} />
+        <Route path='/painel' Component={Painel} />
         <Route path='*' element={<PageError  />} />
       </Routes>
     </EstudanteProvider>

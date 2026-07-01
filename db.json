@@ -1,0 +1,14 @@
+{
+  "trilhas": [
+    { "id": "1", "titulo": "Lógica de Programação", "descricao": "Fundamentos de algoritmos e lógica." },
+    { "id": "2", "titulo": "JavaScript Básico", "descricao": "Variáveis, funções e arrays em JS." }
+  ],
+  "topicos": [
+    { "id": "1", "trilhaId": "1", "titulo": "Variáveis e tipos de dados", "concluido": false },
+    { "id": "2", "trilhaId": "1", "titulo": "Estruturas de decisão", "concluido": false },
+    { "id": "3", "trilhaId": "2", "titulo": "Funções", "concluido": false }
+  ],
+  "historico": [
+    { "id": "1", "topicoId": "1", "acertos": 4, "total": 5, "data": "2026-02-10" }
+  ]
+}
