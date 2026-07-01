@@ -7,8 +7,7 @@ import axios from "axios"
 
 export default function Entrada() {
     useEffect(() => {
-        var resposta_final = null
-        RequestPronto("get", "/trilhas", resposta_final)
+        var resposta_final = RequestPronto("get", "/trilhas")
         console.log(resposta_final)
     }, [])
     return (

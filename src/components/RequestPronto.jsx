@@ -25,4 +25,5 @@ export default function RequestPronto(Typo, url, resultado = null) {
     }
     request()
     console.log(resultado)
+    return resultado
 }
