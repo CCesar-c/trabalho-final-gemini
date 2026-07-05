@@ -1,19 +1,26 @@
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { api } from "../data/api"
-import RequestPronto from "../components/RequestPronto"
 import '../style/.css'
-import axios from "axios"
-
 
 export default function Entrada() {
+    var [list, setList] = useState([])
     useEffect(() => {
-        var resposta_final = RequestPronto("get", "/trilhas")
-        console.log(resposta_final)
+        const ObterResposta = async () => {
+            const response = await api.get("/trilhas")
+            console.log(response.data);
+            setList(response.data)
+        }
+        ObterResposta()
     }, [])
     return (
         <div>
-            <text>Hello World</text>
-
+            {list.map((obj) =>{
+                return(
+                    <div key={obj.id } >
+                        ID: {obj.id} Titulo: {obj.titulo} Descripção: {obj.descricao}
+                    </div>
+                )
+            })}
         </div>
     )
 }
