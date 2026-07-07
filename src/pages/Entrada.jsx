@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react"
 import { api } from "../data/api"
-import '../style/.css'
+import '../style/.css'  
+import { useEstudante } from "../contexts/EstudanteContext"
 
 export default function Entrada() {
-    var [list, setList] = useState([])
-    useEffect(() => {
+    const [list, setList] = useState([])
+    const { estudante, setEstudante, progresso, setProgresso} = useEstudante()
+    
+     useEffect(() => {
         const ObterResposta = async () => {
             const response = await api.get("/trilhas")
             console.log(response.data);
@@ -12,15 +15,15 @@ export default function Entrada() {
         }
         ObterResposta()
     }, [])
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+
+    }
     return (
-        <div>
-            {list.map((obj) =>{
-                return(
-                    <div key={obj.id } >
-                        ID: {obj.id} Titulo: {obj.titulo} Descripção: {obj.descricao}
-                    </div>
-                )
-            })}
+        <div >
+            <form  onSubmit={handleSubmit}>
+            </form>
         </div>
     )
 }
