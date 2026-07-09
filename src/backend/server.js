@@ -14,7 +14,7 @@ app.use(cors());
 
 // Instância do SDK do Gemini (defina GEMINI_API_KEY no arquivo .env)
 const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY || ,
+  apiKey: process.env.GEMINI_API_KEY ||"" ,
 });
 
 // Aplica um timeout a qualquer chamada assíncrona, para que a
