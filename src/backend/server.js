@@ -12,12 +12,21 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cors());
 
-// Instanciar el SDK de Gemini (Recuerda poner tu API Key en el archivo .env como GEMINI_API_KEY)
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY || "",
 });
 
-// 1. RUTA DE DIAGNÓSTICO: Recibe las respuestas del alumno, Gemini genera la trilha en JSON y se guarda en la BD
+// Helper: aplica timeout a qualquer chamada assíncrona (evita requisição travada para sempre)
+function comTimeout(promise, ms = 15000) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("TIMEOUT_GEMINI")), ms)
+    ),
+  ]);
+}
+
+// 1. RUTA DE DIAGNÓSTICO
 app.post("/diagnostico", (req, res) => {
   const { id_estudante, diagnostico } = req.body;
 
@@ -29,24 +38,21 @@ app.post("/diagnostico", (req, res) => {
 
   const gemini = async () => {
     try {
-      // Prompt estructurado para forzar a la IA a responder solo el esquema de datos que necesitas
       const promptSistema = `Você é um orientador pedagógico do SENAI. Analise o seguinte diagnóstico técnico do estudante: "${diagnostico}".
       Com base nas lacunas identificadas, gere uma trilha de estudos personalizada com exatamente 5 tópicos obrigatórios ordenados por nível de dificuldade.
       Retorne OBRIGATORIAMENTE uma lista no seguinte formato JSON: 
       [{"id": 1, "nome_topico": "Nome do Tema 1"}, {"id": 2, "nome_topico": "Nome do Tema 2"}]`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.1-flash-lite",
-        contents: promptSistema,
-        config: {
-          responseMimeType: "application/json",
-        },
-      });
+      const response = await comTimeout(
+        ai.models.generateContent({
+          model: "gemini-2.0-flash",
+          contents: promptSistema,
+          config: { responseMimeType: "application/json" },
+        })
+      );
 
-      // La respuesta ya viene en string formato JSON puro gracias al responseMimeType
       const trilhaJson = response.text;
 
-      // Guardar la trilha generada en la tabla 'trilhas' de tu PostgreSQL
       const resultadoBanco = await conexao.query(
         "INSERT INTO trilhas (nome_trilha, id_estudante, temas_ia) VALUES ($1, $2, $3) RETURNING *",
         ["Trilha Adaptativa DESI", id_estudante, trilhaJson]
@@ -58,6 +64,13 @@ app.post("/diagnostico", (req, res) => {
       });
     } catch (error) {
       console.error("Erro ao se comunicar com o Gemini ou Banco:", error);
+
+      if (error.message === "TIMEOUT_GEMINI") {
+        return res.status(504).json({ error: "A IA demorou demais para responder. Tente novamente." });
+      }
+      if (error.status === 429 || error.code === 429) {
+        return res.status(429).json({ error: "Limite de requisições à IA atingido. Aguarde e tente novamente." });
+      }
       return res.status(500).json({
         error: "Erro interno ao processar a requisição com a IA ou persistência.",
       });
@@ -66,7 +79,7 @@ app.post("/diagnostico", (req, res) => {
   gemini();
 });
 
-// 2. RUTA DE ESTUDIANTE: Registra al alumno en PostgreSQL y devuelve su id_estudante creado
+// 2. RUTA DE ESTUDIANTE
 app.post("/estudante", (req, res) => {
   const { nome, email } = req.body;
 
@@ -80,7 +93,7 @@ app.post("/estudante", (req, res) => {
         "INSERT INTO estudantes (nome, email) VALUES ($1, $2) RETURNING *",
         [nome, email]
       );
-      res.json(request.rows[0]); // Devuelve el objeto del estudiante con su id_estudante asignado
+      res.json(request.rows);
     } catch (error) {
       console.error("Erro ao inserir estudante:", error);
       res.status(500).json({ error: "Erro ao registrar o estudante no banco de dados." });
@@ -89,7 +102,7 @@ app.post("/estudante", (req, res) => {
   salvarEstudante();
 });
 
-// 3. RUTA DE CONSULTA TRILHA: Busca en el banco de datos la última trilha guardada de un alumno específico
+// 3. RUTA DE CONSULTA TRILHA
 app.post("/consulta_trilha", (req, res) => {
   const { id_estudante } = req.body;
 
@@ -108,7 +121,7 @@ app.post("/consulta_trilha", (req, res) => {
         return res.status(404).json({ error: "Nenhuma trilha encontrada para este estudante." });
       }
 
-      res.json(request.rows[0]);
+      res.json(request.rows);
     } catch (error) {
       console.error("Erro ao consultar trilha:", error);
       res.status(500).json({ error: "Erro ao buscar a trilha no banco de dados." });
@@ -117,7 +130,7 @@ app.post("/consulta_trilha", (req, res) => {
   buscarTrilha();
 });
 
-// 4. RUTA DE EVOLUCIÓN: Guarda la nota obtenida, el feedback que generó la IA y calcula si está Aprobado o Reprobado
+// 4. RUTA DE EVOLUCIÓN
 app.post("/evolucao", (req, res) => {
   const { id_estudante, notas, feedback_ia } = req.body;
 
@@ -127,7 +140,6 @@ app.post("/evolucao", (req, res) => {
 
   const salvarProgresso = async () => {
     try {
-      // Regla de negocio del SENAI: Si la nota es igual o mayor a 7 (o el equivalente en tu sistema) está Aprobado
       const estado_aprovacao = notas >= 7 ? "Aprovado" : "Reprovado";
 
       const request = await conexao.query(
@@ -137,7 +149,7 @@ app.post("/evolucao", (req, res) => {
 
       res.json({
         sucesso: true,
-        progresso_salvo: request.rows[0]
+        progresso_salvo: request.rows,
       });
     } catch (error) {
       console.error("Erro ao salvar progresso:", error);
@@ -145,6 +157,25 @@ app.post("/evolucao", (req, res) => {
     }
   };
   salvarProgresso();
+});
+
+// 5. RUTA DE HISTÓRICO (usada pelo Painel.jsx)
+app.get("/api/historico/:id_estudante", (req, res) => {
+  const { id_estudante } = req.params;
+
+  const buscarHistorico = async () => {
+    try {
+      const request = await conexao.query(
+        "SELECT * FROM progresso WHERE id_estudante = $1 ORDER BY creado_en ASC",
+        [id_estudante]
+      );
+      res.json(request.rows);
+    } catch (error) {
+      console.error("Erro ao buscar histórico:", error);
+      res.status(500).json({ error: "Erro ao buscar o histórico do estudante." });
+    }
+  };
+  buscarHistorico();
 });
 
 app.listen(port, () => {
