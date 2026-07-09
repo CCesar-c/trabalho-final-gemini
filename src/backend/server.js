@@ -1,4 +1,4 @@
-require("dotenv/config");
+require("dotenv").config();
 
 const { conexao } = require("./connection.js");
 const express = require("express");
