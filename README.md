@@ -154,3 +154,5 @@ requisições atingido, erro de banco de dados, etc.).
 - Chamadas ao Gemini têm timeout de 15s e tratamento específico para
   erro 429 (limite de requisições), retornando mensagens compreensíveis
   ao front-end em vez de travar a tela.
+
+AQ.Ab8RN6JX50uR5EZS7H4cSqOx4YdvLIAa0t4uaWkOUVie0-1HCg
