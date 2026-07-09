@@ -23,6 +23,7 @@ function App() {
         <Route path='/trilha' Component={Trilha} />
         <Route path='/topico/:id' Component={Topico} />
         <Route path='/painel' Component={Painel} />
+        <Route path='/cadastro' Component={Painel} />
         <Route path='*' element={<PageError  />} />
       </Routes>
     </EstudanteProvider>
