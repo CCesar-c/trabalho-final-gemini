@@ -1,82 +1,94 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { useEstudante } from "../contexts/EstudanteContext";
+import { useEstudante } from "../contexts/EstudanteContext.jsx";
 import { api } from "../data/api.js";
+import Card from "../components/Card.jsx";
+import Loading from "../components/Loading.jsx";
+import MensagemErro from "../components/MensagemErro.jsx";
+import EstadoVazio from "../components/EstadoVazio.jsx";
+import ItemTrilha from "../components/ItemTrilha.jsx";
 
 export default function Trilha() {
-  const { estudante } = useEstudante();
-  const [listaTemas, setListaTemas] = useState([]);
+  const { estudante, trilha, setTrilha } = useEstudante();
   const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState("");
+  const [buscou, setBuscou] = useState(false);
 
   useEffect(() => {
     if (!estudante) return;
 
-    // Consulta real a tu endpoint de Node.js
+    // Se a trilha já veio pelo Context (recém-gerada no Diagnóstico),
+    // não precisa buscar de novo — só confirma o carregamento.
+    if (trilha && trilha.length > 0) {
+      setCarregando(false);
+      return;
+    }
+
+    // "buscou" evita repetir a chamada indefinidamente caso a trilha
+    // volte vazia (ex.: estudante ainda sem diagnóstico salvo).
+    if (buscou) {
+      setCarregando(false);
+      return;
+    }
+
     api
       .post("/consulta_trilha", { id_estudante: estudante.id_estudante })
       .then((resposta) => {
-        // Tu base de datos guarda el JSON en la columna 'temas_ia'
-        const dadosTrilha = resposta.data[0];
-
-        // Verificamos si los temas vienen como string o como objeto JSON directo
+        const dadosTrilha = resposta.data?.[0];
         const temas =
-          typeof dadosTrilha.temas_ia === "string"
+          typeof dadosTrilha?.temas_ia === "string"
             ? JSON.parse(dadosTrilha.temas_ia)
-            : dadosTrilha.temas_ia;
-
-        setListaTemas(temas || []);
-        setCarregando(false);
+            : dadosTrilha?.temas_ia || [];
+        setTrilha(temas);
       })
-      .catch((erro) => {
-        console.error("Erro ao carregar a trilha:", erro);
+      .catch((erroReq) => {
+        console.error("Erro ao carregar a trilha:", erroReq);
+        if (erroReq.response?.status === 404) {
+          setTrilha([]);
+        } else {
+          setErro("Não foi possível carregar sua trilha. Verifique se o back-end está rodando.");
+        }
+      })
+      .finally(() => {
+        setBuscou(true);
         setCarregando(false);
       });
-  }, [estudante]);
+    // Refaz a busca sempre que o estudante identificado mudar
+  }, [estudante, trilha, setTrilha, buscou]);
 
-  if (!estudante) return <p>Por favor, faça o login primeiro.</p>;
-  if (carregando) return <p>Carregando sua trilha pedagógica...</p>;
+  if (!estudante) {
+    return (
+      <div className="container">
+        <Card>
+          <p>Por favor, faça o login primeiro.</p>
+        </Card>
+      </div>
+    );
+  }
 
   return (
-    <div style={{ padding: "40px", maxWidth: "600px", margin: "0 auto" }}>
-      <h2>Trilha de Aprendizado Adaptativa</h2>
-      <p>
-        Estudante: <strong>{estudante.nome}</strong>
-      </p>
-      <p>Com base no seu diagnóstico, a IA estruturou os seguintes tópicos:</p>
+    <div className="container">
+      <Card titulo="Trilha de aprendizado adaptativa">
+        <p>
+          Estudante: <strong>{estudante.nome}</strong>
+        </p>
+        <p className="text-suave">
+          Com base no seu diagnóstico, a IA estruturou os seguintes tópicos:
+        </p>
 
-      <div style={{ marginTop: "20px" }}>
-        {listaTemas.map((tema) => (
-          <div
-            key={tema.id} // Requisito obligatorio: KEY única en el .map
-            style={{
-              padding: "15px",
-              border: "1px solid #ddd",
-              borderRadius: "5px",
-              marginBottom: "10px",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-            }}
-          >
-            <span>
-              <strong>Tópico #{tema.id}:</strong> {tema.nome_topico}
-            </span>
-            {/* Navegación dinámica usando el ID del tema en la URL */}
-            <Link
-              to={`/topico/${tema.id}?nome=${encodeURIComponent(tema.nome_topico)}`}
-              style={{
-                padding: "5px 10px",
-                backgroundColor: "#007bff",
-                color: "white",
-                textDecoration: "none",
-                borderRadius: "3px",
-              }}
-            >
-              Estudar
-            </Link>
+        <MensagemErro mensagem={erro} />
+
+        {carregando ? (
+          <Loading mensagem="Carregando sua trilha pedagógica..." />
+        ) : trilha.length === 0 ? (
+          <EstadoVazio mensagem="Você ainda não tem uma trilha gerada. Volte ao diagnóstico para criar uma." />
+        ) : (
+          <div className="mt-16">
+            {trilha.map((tema) => (
+              <ItemTrilha key={tema.id} tema={tema} />
+            ))}
           </div>
-        ))}
-      </div>
+        )}
+      </Card>
     </div>
   );
 }

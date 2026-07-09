@@ -1,179 +1,129 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useEstudante } from "../contexts/EstudanteContext";
+import { useEstudante } from "../contexts/EstudanteContext.jsx";
 import { api } from "../data/api.js";
+import Card from "../components/Card.jsx";
+import Loading from "../components/Loading.jsx";
+import MensagemErro from "../components/MensagemErro.jsx";
+import EstadoVazio from "../components/EstadoVazio.jsx";
+import BarraProgresso from "../components/BarraProgresso.jsx";
+import Botao from "../components/Botao.jsx";
 
 export default function Painel() {
   const { estudante } = useEstudante();
   const navigate = useNavigate();
 
-  // Estados para controlar los datos de la API y la interfaz
   const [historico, setHistorico] = useState([]);
   const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState("");
 
   useEffect(() => {
     if (!estudante) return;
 
-    // Consultamos el historial del alumno usando su id
     api
-      .post("/consulta_trilha", { id_estudante: estudante.id_estudante })
-      .then(() => {
-        // Para el historial de notas, llamamos a un endpoint que nos traiga su progreso
-        // Como tu backend usa la ruta /evolucao para guardar, podemos simular la consulta aquí
-        // O si creaste un endpoint de consulta, lo apuntas directamente.
-        // Simulamos la carga de su tabla 'progresso' de PostgreSQL:
-        return api.get(`/api/historico/${estudante.id_estudante}`); // Ruta opcional o simulada
-      })
+      .get(`/api/historico/${estudante.id_estudante}`)
       .then((resposta) => {
         setHistorico(resposta.data || []);
-        setCarregando(false);
       })
-      .catch((erro) => {
-        console.error("Erro ao buscar histórico:", erro);
-        // Si aún no hay notas en la base de datos, dejamos el historial vacío
+      .catch((erroReq) => {
+        console.error("Erro ao buscar histórico:", erroReq);
+        setErro("Não foi possível carregar seu histórico agora.");
         setHistorico([]);
-        setCarregando(false);
-      });
+      })
+      .finally(() => setCarregando(false));
+    // Refaz a busca se o estudante identificado mudar
   }, [estudante]);
 
-  if (!estudante) return <p>Por favor, faça o login primeiro.</p>;
-
-  // Requisito del documento: Renderización condicional para el estado "CARREGANDO"
-  if (carregando) {
+  if (!estudante) {
     return (
-      <div style={{ padding: "40px", textAlign: "center" }}>
-        <h3>Carregando estatísticas do estudante...</h3>
+      <div className="container">
+        <Card>
+          <p>Por favor, faça o login primeiro.</p>
+        </Card>
       </div>
     );
   }
 
-  // Cálculos de progreso para la interfaz
+  if (carregando) {
+    return (
+      <div className="container">
+        <Loading mensagem="Carregando estatísticas do estudante..." />
+      </div>
+    );
+  }
+
   const totalTopicosAprovados = historico.filter(
-    (item) => item.estado_aprovacao === "Aprovado",
+    (item) => item.estado_aprovacao === "Aprovado"
   ).length;
+
   const notaMedia =
     historico.length > 0
-      ? (
-          historico.reduce((acc, curr) => acc + Number(curr.notas), 0) /
-          historico.length
-        ).toFixed(1)
+      ? historico.reduce((acc, curr) => acc + Number(curr.notas), 0) / historico.length
       : 0;
 
   return (
-    <div style={{ padding: "40px", maxWidth: "600px", margin: "0 auto" }}>
-      <h2>Painel de Desempenho do Estudante</h2>
-      <p>
-        Estudante: <strong>{estudante.nome}</strong>
-      </p>
+    <div className="container">
+      <Card titulo="Painel de desempenho do estudante">
+        <p>
+          Estudante: <strong>{estudante.nome}</strong>
+        </p>
 
-      {/* Tarjetas de Resumen Técnico */}
-      <div style={{ display: "flex", gap: "20px", margin: "20px 0" }}>
-        <div
-          style={{
-            flex: 1,
-            padding: "15px",
-            backgroundColor: "#f0f4f8",
-            borderRadius: "8px",
-            textAlign: "center",
-          }}
-        >
-          <h4>Módulos Concluídos</h4>
-          <p style={{ fontSize: "24px", fontWeight: "bold", margin: "5px 0" }}>
-            {totalTopicosAprovados} / 5
-          </p>
-        </div>
-        <div
-          style={{
-            flex: 1,
-            padding: "15px",
-            backgroundColor: "#f0f4f8",
-            borderRadius: "8px",
-            textAlign: "center",
-          }}
-        >
-          <h4>Média Geral Técnico</h4>
-          <p
-            style={{
-              fontSize: "24px",
-              fontWeight: "bold",
-              margin: "5px 0",
-              color: notaMedia >= 7 ? "green" : "orange",
-            }}
-          >
-            {notaMedia}
-          </p>
-        </div>
-      </div>
+        <MensagemErro mensagem={erro} />
 
-      <h3>Histórico de Verificações da IA</h3>
-
-      {/* Requisito del documento: Renderización condicional para el estado "VAZIO" */}
-      {historico.length === 0 ? (
-        <div
-          style={{
-            padding: "20px",
-            backgroundColor: "#fff3cd",
-            border: "1px solid #ffeba0",
-            borderRadius: "5px",
-          }}
-        >
-          <p>
-            Você ainda não realizou nenhuma avaliação técnica. Vá para a sua
-            trilha e conclua um tópico!
-          </p>
+        <div style={{ display: "flex", gap: 20, margin: "20px 0" }}>
+          <div style={{ flex: 1 }}>
+            <BarraProgresso
+              valor={totalTopicosAprovados}
+              maximo={5}
+              rotulo={`Módulos concluídos: ${totalTopicosAprovados} / 5`}
+            />
+          </div>
         </div>
-      ) : (
-        // Listado utilizando .map() con su respectiva KEY obligatoria
-        <div style={{ marginTop: "15px" }}>
-          {historico.map((item, index) => (
-            <div
-              key={item.progresso_id || index}
-              style={{
-                padding: "15px",
-                border: "1px solid #ddd",
-                borderRadius: "5px",
-                marginBottom: "10px",
-                backgroundColor:
-                  item.estado_aprovacao === "Aprovado" ? "#e2f0d9" : "#fce4d6",
-              }}
-            >
+
+        <p>
+          Média geral:{" "}
+          <strong style={{ color: notaMedia >= 7 ? "var(--sucesso)" : "var(--acento)" }}>
+            {notaMedia.toFixed(1)}
+          </strong>
+        </p>
+
+        <h3 style={{ fontSize: 15, marginTop: 24, marginBottom: 10 }}>
+          Histórico de verificações da IA
+        </h3>
+
+        {historico.length === 0 ? (
+          <EstadoVazio mensagem="Você ainda não realizou nenhuma avaliação técnica. Vá para a sua trilha e conclua um tópico!" />
+        ) : (
+          <div>
+            {historico.map((item, index) => (
               <div
+                key={item.progresso_id || index}
+                className="card"
                 style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  fontWeight: "bold",
+                  padding: 16,
+                  marginBottom: 10,
+                  background: item.estado_aprovacao === "Aprovado" ? "var(--sucesso-bg)" : "var(--erro-bg)",
                 }}
               >
-                <span>Avaliação #{index + 1}</span>
-                <span>Nota: {item.notas}</span>
+                <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 600 }}>
+                  <span>Avaliação #{index + 1}</span>
+                  <span>Nota: {item.notas}</span>
+                </div>
+                <p style={{ margin: "6px 0 0" }}>
+                  <strong>Resultado:</strong> {item.estado_aprovacao}
+                </p>
+                <p style={{ margin: "6px 0 0", fontSize: 13.5 }} className="text-suave">
+                  <strong>Feedback:</strong> {item.feedback_ia}
+                </p>
               </div>
-              <p style={{ margin: "5px 0 0 0", fontSize: "14px" }}>
-                <strong>Resultado:</strong> {item.estado_aprovacao}
-              </p>
-              <p
-                style={{ margin: "5px 0 0 0", fontSize: "13px", color: "#555" }}
-              >
-                <strong>Feedback guardado:</strong> {item.feedback_ia}
-              </p>
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        )}
 
-      <button
-        onClick={() => navigate("/trilha")}
-        style={{
-          marginTop: "20px",
-          padding: "10px 15px",
-          cursor: "pointer",
-          backgroundColor: "#6c757d",
-          color: "white",
-          border: "none",
-          borderRadius: "4px",
-        }}
-      >
-        Voltar para a Trilha
-      </button>
+        <Botao variante="secundario" onClick={() => navigate("/trilha")} style={{ marginTop: 10 }}>
+          Voltar para a trilha
+        </Botao>
+      </Card>
     </div>
   );
 }

@@ -1,31 +1,45 @@
 import { useState } from "react";
 import { useParams, useSearchParams, useNavigate } from "react-router-dom";
-import { useEstudante } from "../contexts/EstudanteContext";
+import { useEstudante } from "../contexts/EstudanteContext.jsx";
 import { api } from "../data/api.js";
+import Card from "../components/Card.jsx";
+import QuestaoCard from "../components/QuestaoCard.jsx";
+import FeedbackBox from "../components/FeedbackBox.jsx";
+import Botao from "../components/Botao.jsx";
+import MensagemErro from "../components/MensagemErro.jsx";
 
 export default function Topico() {
-  const { id } = useParams(); // Requisito: Lee el :id de la ruta dinámica
+  const { id } = useParams(); // lê o :id da rota dinâmica
   const [searchParams] = useSearchParams();
   const nomeTopico = searchParams.get("nome") || "Tópico de Estudo";
 
   const { estudante } = useEstudante();
   const navigate = useNavigate();
 
-  // Estados locales para controlar el formulario y la respuesta de la IA
   const [respostaEstudante, setRespostaEstudante] = useState("");
   const [carregando, setCarregando] = useState(false);
   const [resultadoAvaliacao, setResultadoAvaliacao] = useState(null);
+  const [erro, setErro] = useState("");
 
-  if (!estudante) return <p>Por favor, faça o login primeiro.</p>;
+  if (!estudante) {
+    return (
+      <div className="container">
+        <Card>
+          <p>Por favor, faça o login primeiro.</p>
+        </Card>
+      </div>
+    );
+  }
 
-  const handleSubmeterProva = async (e) => {
+  async function handleSubmeterProva(e) {
     e.preventDefault();
+    setErro("");
     setCarregando(true);
 
     try {
-      // Simulamos una nota aleatoria entre 1 y 10 para enviar al endpoint /evolucao
-      // (En un entorno de producción avanzado, tu Node invocaría a Gemini primero para obtener esta nota)
-      const notaCalculada = Math.floor(Math.random() * 6) + 5; // Nota entre 5 y 10
+      // Nota simulada localmente entre 5 e 10 — em produção, o back-end
+      // chamaria o Gemini para gerar essa nota a partir da resposta.
+      const notaCalculada = Math.floor(Math.random() * 6) + 5;
       const feedbackSimulado = `Avaliação do tópico ${nomeTopico} concluída com sucesso. Demonstrou boa compreensão dos fundamentos técnicos gerais aplicados no módulo técnico.`;
 
       const resposta = await api.post("/evolucao", {
@@ -35,104 +49,62 @@ export default function Topico() {
       });
 
       if (resposta.data.sucesso) {
-        // Guardamos el objeto devuelto por la base de datos en el estado local
-        setResultadoAvaliacao(resposta.data.progresso_salvo[0]);
+        setResultadoAvaliacao(resposta.data.progresso_salvo?.[0]);
       }
     } catch (error) {
       console.error(error);
-      alert("Erro ao enviar a avaliação para o servidor.");
+      setErro("Erro ao enviar a avaliação para o servidor. Tente novamente.");
     } finally {
       setCarregando(false);
     }
-  };
+  }
 
   return (
-    <div style={{ padding: "40px", maxWidth: "600px", margin: "0 auto" }}>
-      <h2>Estudando o Tópico #{id}</h2>
-      <h3>{nomeTopico}</h3>
-      <p
-        style={{
-          backgroundColor: "#f9f9f9",
-          padding: "15px",
-          borderLeft: "4px solid #007bff",
-        }}
-      >
-        <strong>Conteúdo do Módulo:</strong> Leia atentamente os conceitos de{" "}
-        {nomeTopico} e responda à pergunta prática de verificação abaixo para
-        atualizar seu progresso no sistema adaptativo.
-      </p>
-
-      {/* Formulario controlado obligatorio */}
-      {!resultadoAvaliacao ? (
-        <form onSubmit={handleSubmeterProva} style={{ marginTop: "20px" }}>
-          <label style={{ display: "block", marginBottom: "10px" }}>
-            <strong>Questão de Verificação:</strong> Descreva resumidamente como
-            você implementaria este conceito em um projeto de sistemas.
-          </label>
-          <textarea
-            style={{
-              width: "100%",
-              height: "100px",
-              padding: "10px",
-              marginBottom: "15px",
-            }}
-            value={respostaEstudante}
-            onChange={(e) => setRespostaEstudante(e.target.value)}
-            placeholder="Digite sua resposta técnica aqui..."
-            required
-            disabled={carregando}
-          />
-          <button
-            type="submit"
-            style={{ padding: "10px 20px", cursor: "pointer" }}
-            disabled={carregando}
-          >
-            {carregando ? "IA Analisando Resposta..." : "Enviar Avaliação"}
-          </button>
-        </form>
-      ) : (
-        // Renderización condicional (&& y ternarios) exigida en los requisitos
-        <div
+    <div className="container">
+      <Card titulo={`Estudando o tópico #${id}`}>
+        <h3 style={{ marginBottom: 10 }}>{nomeTopico}</h3>
+        <p
           style={{
-            marginTop: "20px",
-            padding: "20px",
-            backgroundColor: "#e2f0d9",
-            border: "1px solid #385723",
+            background: "var(--azul-100)",
+            padding: 15,
+            borderLeft: "4px solid var(--azul-500)",
+            borderRadius: 6,
           }}
         >
-          <h4>Resultado da Avaliação via IA</h4>
-          <p>
-            Nota Atribuída: <strong>{resultadoAvaliacao.notas}</strong>
-          </p>
-          <p>
-            Status do Módulo:{" "}
-            <strong
-              style={{
-                color:
-                  resultadoAvaliacao.estado_aprovacao === "Aprovado"
-                    ? "green"
-                    : "red",
-              }}
-            >
-              {resultadoAvaliacao.estado_aprovacao}
-            </strong>
-          </p>
-          <p>
-            <strong>Feedback da IA:</strong> {resultadoAvaliacao.feedback_ia}
-          </p>
+          <strong>Conteúdo do módulo:</strong> leia atentamente os conceitos de{" "}
+          {nomeTopico} e responda à pergunta prática de verificação abaixo para
+          atualizar seu progresso no sistema adaptativo.
+        </p>
 
-          <button
-            onClick={() => navigate("/trilha")}
-            style={{
-              marginTop: "15px",
-              padding: "10px 15px",
-              cursor: "pointer",
-            }}
-          >
-            Voltar para a Trilha
-          </button>
-        </div>
-      )}
+        <MensagemErro mensagem={erro} />
+
+        {/* Renderização condicional: mostra o formulário até haver
+            resultado, depois troca para o FeedbackBox (&& / ternário) */}
+        {!resultadoAvaliacao ? (
+          <QuestaoCard
+            enunciado="Questão de verificação: descreva resumidamente como você implementaria este conceito em um projeto de sistemas."
+            resposta={respostaEstudante}
+            onChangeResposta={setRespostaEstudante}
+            onSubmit={handleSubmeterProva}
+            carregando={carregando}
+          />
+        ) : (
+          <div className="mt-16">
+            <FeedbackBox
+              nota={resultadoAvaliacao.notas}
+              estadoAprovacao={resultadoAvaliacao.estado_aprovacao}
+              feedback={resultadoAvaliacao.feedback_ia}
+            />
+            <Botao
+              variante="secundario"
+              onClick={() => navigate("/trilha")}
+              style={{ marginTop: 16 }}
+            >
+              Voltar para a trilha
+            </Botao>
+          </div>
+        )}
+      </Card>
     </div>
   );
 }

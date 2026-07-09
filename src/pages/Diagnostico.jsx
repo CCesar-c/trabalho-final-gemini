@@ -1,87 +1,94 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useEstudante } from "../contexts/EstudanteContext";
+import { useEstudante } from "../contexts/EstudanteContext.jsx";
 import { api } from "../data/api.js";
+import Card from "../components/Card.jsx";
+import CampoTexto from "../components/CampoTexto.jsx";
+import Botao from "../components/Botao.jsx";
+import Loading from "../components/Loading.jsx";
+import MensagemErro from "../components/MensagemErro.jsx";
 
 export default function Diagnostico() {
   const { estudante, setTrilha } = useEstudante();
   const [textoDiagnostico, setTextoDiagnostico] = useState("");
   const [carregando, setCarregando] = useState(false);
+  const [erro, setErro] = useState("");
   const navigate = useNavigate();
 
-  // Si el usuario entró directo sin registrarse, lo mandamos al inicio
+  // Se o estudante ainda não se identificou, não deixa avançar
   if (!estudante) {
-    return <p>Por favor, faça o login na tela inicial primeiro.</p>;
+    return (
+      <div className="container container--estreito">
+        <Card>
+          <p>Por favor, faça o login na tela inicial primeiro.</p>
+        </Card>
+      </div>
+    );
   }
 
-  const handleEnviarDiagnostico = async (e) => {
+  async function handleEnviarDiagnostico(e) {
     e.preventDefault();
-    setCarregando(true); // Activa el estado visual de carga obligatorio
+    setErro("");
+    setCarregando(true);
 
     try {
-      // Enviamos el id del alumno y el texto a tu ruta /diagnostico
       const resposta = await api.post("/diagnostico", {
         id_estudante: estudante.id_estudante,
         diagnostico: textoDiagnostico,
       });
 
       if (resposta.data.sucesso) {
-        // Guardamos los temas que generó Gemini en el estado global
-        const dadosTrilha = resposta.data.dados_trilha[0];
-        setTrilha(dadosTrilha.temas_ia);
+        const dadosTrilha = resposta.data.dados_trilha;
+        const temas =
+          typeof dadosTrilha.temas_ia === "string"
+            ? JSON.parse(dadosTrilha.temas_ia)
+            : dadosTrilha.temas_ia;
 
-        navigate("/trilha"); // Vamos a la pantalla que lista los temas
+        setTrilha(temas);
+        navigate("/trilha");
       }
     } catch (error) {
       console.error(error);
-      alert("Erro ao processar o diagnóstico com a IA do Gemini.");
+      if (error.response?.status === 504 || error.code === "ECONNABORTED") {
+        setErro("A IA demorou demais para responder. Tente novamente.");
+      } else if (error.response?.status === 429) {
+        setErro("Limite de requisições à IA atingido. Aguarde um instante e tente de novo.");
+      } else {
+        setErro("Erro ao processar o diagnóstico com a IA. Tente novamente.");
+      }
     } finally {
-      setCarregando(false); // Apaga el estado de carga
+      setCarregando(false);
     }
-  };
+  }
 
   return (
-    <div style={{ padding: "40px", maxWidth: "600px", margin: "0 auto" }}>
-      <h2>Avaliação Diagnóstica Inicial</h2>
-      <p>
-        Olá {estudante.nome}, escreva abaixo quais tecnologias você já conhece
-        ou quais são suas maiores dificuldades em programação:
-      </p>
+    <div className="container container--estreito">
+      <Card titulo="Avaliação diagnóstica inicial">
+        <p>
+          Olá {estudante.nome}, escreva abaixo quais tecnologias você já conhece ou
+          quais são suas maiores dificuldades em programação:
+        </p>
 
-      {carregando ? (
-        // Renderización condicional de carga
-        <div
-          style={{
-            padding: "20px",
-            backgroundColor: "#f3f3f3",
-            fontWeight: "bold",
-          }}
-        >
-          🤖 Gemini IA está analisando seu perfil e montando sua trilha
-          personalizada... Por favor, aguarde.
-        </div>
-      ) : (
-        <form onSubmit={handleEnviarDiagnostico}>
-          <textarea
-            style={{
-              width: "100%",
-              height: "150px",
-              padding: "10px",
-              marginBottom: "15px",
-            }}
-            placeholder="Ex: Já sei HTML e CSS, mas tenho muita dificuldade em entender lógica de programação e loops em JavaScript..."
-            value={textoDiagnostico}
-            onChange={(e) => setTextoDiagnostico(e.target.value)}
-            required
-          />
-          <button
-            type="submit"
-            style={{ padding: "10px 20px", cursor: "pointer" }}
-          >
-            Gerar Minha Trilha Adaptativa
-          </button>
-        </form>
-      )}
+        <MensagemErro mensagem={erro} />
+
+        {carregando ? (
+          <Loading mensagem="🤖 Gemini IA está analisando seu perfil e montando sua trilha personalizada..." />
+        ) : (
+          <form onSubmit={handleEnviarDiagnostico}>
+            <CampoTexto
+              valor={textoDiagnostico}
+              onChange={setTextoDiagnostico}
+              placeholder="Ex: Já sei HTML e CSS, mas tenho muita dificuldade em entender lógica de programação e loops em JavaScript..."
+              obrigatorio
+              multilinha
+              linhas={6}
+            />
+            <Botao type="submit" bloco>
+              Gerar minha trilha adaptativa
+            </Botao>
+          </form>
+        )}
+      </Card>
     </div>
   );
 }

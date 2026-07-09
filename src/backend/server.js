@@ -12,11 +12,13 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cors());
 
+// Instância do SDK do Gemini (defina GEMINI_API_KEY no arquivo .env)
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY || "",
 });
 
-// Helper: aplica timeout a qualquer chamada assíncrona (evita requisição travada para sempre)
+// Aplica um timeout a qualquer chamada assíncrona, para que a
+// requisição não fique travada para sempre caso o Gemini não responda.
 function comTimeout(promise, ms = 15000) {
   return Promise.race([
     promise,
@@ -26,7 +28,22 @@ function comTimeout(promise, ms = 15000) {
   ]);
 }
 
-// 1. RUTA DE DIAGNÓSTICO
+// Traduz erros conhecidos (timeout, limite de requisições) em respostas
+// HTTP claras para o front-end tratar.
+function tratarErroIA(error, res, mensagemPadrao) {
+  console.error(mensagemPadrao, error);
+
+  if (error.message === "TIMEOUT_GEMINI") {
+    return res.status(504).json({ error: "A IA demorou demais para responder. Tente novamente." });
+  }
+  if (error.status === 429 || error.code === 429) {
+    return res.status(429).json({ error: "Limite de requisições à IA atingido. Aguarde e tente novamente." });
+  }
+  return res.status(500).json({ error: mensagemPadrao });
+}
+
+// 1. ROTA DE DIAGNÓSTICO: recebe as respostas do aluno, Gemini gera a
+//    trilha em JSON e o resultado é salvo no banco.
 app.post("/diagnostico", (req, res) => {
   const { id_estudante, diagnostico } = req.body;
 
@@ -36,14 +53,14 @@ app.post("/diagnostico", (req, res) => {
     });
   }
 
-  const gemini = async () => {
+  const gerarTrilha = async () => {
     try {
       const promptSistema = `Você é um orientador pedagógico do SENAI. Analise o seguinte diagnóstico técnico do estudante: "${diagnostico}".
       Com base nas lacunas identificadas, gere uma trilha de estudos personalizada com exatamente 5 tópicos obrigatórios ordenados por nível de dificuldade.
-      Retorne OBRIGATORIAMENTE uma lista no seguinte formato JSON: 
+      Retorne OBRIGATORIAMENTE uma lista no seguinte formato JSON:
       [{"id": 1, "nome_topico": "Nome do Tema 1"}, {"id": 2, "nome_topico": "Nome do Tema 2"}]`;
 
-      const response = await comTimeout(
+      const resposta = await comTimeout(
         ai.models.generateContent({
           model: "gemini-2.0-flash",
           contents: promptSistema,
@@ -51,7 +68,7 @@ app.post("/diagnostico", (req, res) => {
         })
       );
 
-      const trilhaJson = response.text;
+      const trilhaJson = resposta.text;
 
       const resultadoBanco = await conexao.query(
         "INSERT INTO trilhas (nome_trilha, id_estudante, temas_ia) VALUES ($1, $2, $3) RETURNING *",
@@ -63,23 +80,14 @@ app.post("/diagnostico", (req, res) => {
         dados_trilha: resultadoBanco.rows[0],
       });
     } catch (error) {
-      console.error("Erro ao se comunicar com o Gemini ou Banco:", error);
-
-      if (error.message === "TIMEOUT_GEMINI") {
-        return res.status(504).json({ error: "A IA demorou demais para responder. Tente novamente." });
-      }
-      if (error.status === 429 || error.code === 429) {
-        return res.status(429).json({ error: "Limite de requisições à IA atingido. Aguarde e tente novamente." });
-      }
-      return res.status(500).json({
-        error: "Erro interno ao processar a requisição com a IA ou persistência.",
-      });
+      return tratarErroIA(error, res, "Erro ao processar o diagnóstico com a IA ou persistência.");
     }
   };
-  gemini();
+  gerarTrilha();
 });
 
-// 2. RUTA DE ESTUDIANTE
+// 2. ROTA DE ESTUDANTE: cadastra o aluno no PostgreSQL e devolve o
+//    registro criado (com o id_estudante gerado).
 app.post("/estudante", (req, res) => {
   const { nome, email } = req.body;
 
@@ -89,20 +97,23 @@ app.post("/estudante", (req, res) => {
 
   const salvarEstudante = async () => {
     try {
-      const request = await conexao.query(
+      const resultado = await conexao.query(
         "INSERT INTO estudantes (nome, email) VALUES ($1, $2) RETURNING *",
         [nome, email]
       );
-      res.json(request.rows);
+      res.json(resultado.rows);
     } catch (error) {
       console.error("Erro ao inserir estudante:", error);
+      if (error.code === "23505") {
+        return res.status(409).json({ error: "Este e-mail já está cadastrado." });
+      }
       res.status(500).json({ error: "Erro ao registrar o estudante no banco de dados." });
     }
   };
   salvarEstudante();
 });
 
-// 3. RUTA DE CONSULTA TRILHA
+// 3. ROTA DE CONSULTA DE TRILHA: busca a última trilha salva do aluno.
 app.post("/consulta_trilha", (req, res) => {
   const { id_estudante } = req.body;
 
@@ -112,16 +123,16 @@ app.post("/consulta_trilha", (req, res) => {
 
   const buscarTrilha = async () => {
     try {
-      const request = await conexao.query(
+      const resultado = await conexao.query(
         "SELECT * FROM trilhas WHERE id_estudante = $1 ORDER BY creado_en DESC LIMIT 1",
         [id_estudante]
       );
 
-      if (request.rows.length === 0) {
+      if (resultado.rows.length === 0) {
         return res.status(404).json({ error: "Nenhuma trilha encontrada para este estudante." });
       }
 
-      res.json(request.rows);
+      res.json(resultado.rows);
     } catch (error) {
       console.error("Erro ao consultar trilha:", error);
       res.status(500).json({ error: "Erro ao buscar a trilha no banco de dados." });
@@ -130,7 +141,8 @@ app.post("/consulta_trilha", (req, res) => {
   buscarTrilha();
 });
 
-// 4. RUTA DE EVOLUCIÓN
+// 4. ROTA DE EVOLUÇÃO: salva a nota, o feedback da IA e calcula se o
+//    estudante foi aprovado ou reprovado no tópico.
 app.post("/evolucao", (req, res) => {
   const { id_estudante, notas, feedback_ia } = req.body;
 
@@ -142,14 +154,14 @@ app.post("/evolucao", (req, res) => {
     try {
       const estado_aprovacao = notas >= 7 ? "Aprovado" : "Reprovado";
 
-      const request = await conexao.query(
+      const resultado = await conexao.query(
         "INSERT INTO progresso (id_estudante, notas, feedback_ia, estado_aprovacao) VALUES ($1, $2, $3, $4) RETURNING *",
         [id_estudante, notas, feedback_ia, estado_aprovacao]
       );
 
       res.json({
         sucesso: true,
-        progresso_salvo: request.rows,
+        progresso_salvo: resultado.rows,
       });
     } catch (error) {
       console.error("Erro ao salvar progresso:", error);
@@ -159,17 +171,18 @@ app.post("/evolucao", (req, res) => {
   salvarProgresso();
 });
 
-// 5. RUTA DE HISTÓRICO (usada pelo Painel.jsx)
+// 5. ROTA DE HISTÓRICO: usada pelo Painel para listar todas as
+//    avaliações de um estudante em ordem cronológica.
 app.get("/api/historico/:id_estudante", (req, res) => {
   const { id_estudante } = req.params;
 
   const buscarHistorico = async () => {
     try {
-      const request = await conexao.query(
+      const resultado = await conexao.query(
         "SELECT * FROM progresso WHERE id_estudante = $1 ORDER BY creado_en ASC",
         [id_estudante]
       );
-      res.json(request.rows);
+      res.json(resultado.rows);
     } catch (error) {
       console.error("Erro ao buscar histórico:", error);
       res.status(500).json({ error: "Erro ao buscar o histórico do estudante." });
@@ -179,5 +192,5 @@ app.get("/api/historico/:id_estudante", (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log("Esta funcionando em http://localhost:" + port);
+  console.log("Está funcionando em http://localhost:" + port);
 });
