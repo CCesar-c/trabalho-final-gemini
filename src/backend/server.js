@@ -14,18 +14,53 @@ app.use(cors());
 
 // Instância do SDK do Gemini (defina GEMINI_API_KEY no arquivo .env)
 const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY || "",
+  apiKey: process.env.GEMINI_API_KEY || "AQ.Ab8RN6LGvY42i-ax6dwWHtReh5y1E8MwF8DK9ZcI0IQ-0wRjnQ",
 });
 
 // Aplica um timeout a qualquer chamada assíncrona, para que a
 // requisição não fique travada para sempre caso o Gemini não responda.
-function comTimeout(promise, ms = 15000) {
+function comTimeout(promise, ms = 25000) {
   return Promise.race([
     promise,
     new Promise((_, reject) =>
       setTimeout(() => reject(new Error("TIMEOUT_GEMINI")), ms),
     ),
   ]);
+}
+
+// Chama o Gemini com retentativas automáticas quando o erro é de
+// sobrecarga temporária (503) ou limite de requisições (429).
+// Erros de outro tipo (401, 404, etc.) sobem imediatamente, sem
+// desperdiçar tempo tentando de novo.
+async function generarConReintento(promptSistema, intentos = 2) {
+  for (let i = 0; i <= intentos; i++) {
+    try {
+      return await comTimeout(
+        ai.models.generateContent({
+          model: "gemini-3.5-flash",
+          contents: promptSistema,
+          config: {
+            responseMimeType: "application/json",
+            thinkingConfig: { thinkingLevel: "minimal" },
+          },
+        }),
+        25000,
+      );
+    } catch (error) {
+      const esUltimoIntento = i === intentos;
+      const esSobrecarga = error.status === 503 || error.status === 429;
+
+      if (!esSobrecarga || esUltimoIntento) {
+        throw error;
+      }
+
+      const espera = 1000 * (i + 1); // 1s, depois 2s
+      console.warn(
+        `Gemini sobrecarregado (503/429). Tentando novamente em ${espera}ms...`,
+      );
+      await new Promise((r) => setTimeout(r, espera));
+    }
+  }
 }
 
 // Traduz erros conhecidos (timeout, limite de requisições) em respostas
@@ -68,13 +103,7 @@ app.post("/diagnostico", (req, res) => {
       Retorne OBRIGATORIAMENTE uma lista no seguinte formato JSON:
       [{"id": 1, "nome_topico": "Nome do Tema 1"}, {"id": 2, "nome_topico": "Nome do Tema 2"}]`;
 
-      const resposta = await comTimeout(
-        ai.models.generateContent({
-          model: "gemini-2.0-flash",
-          contents: promptSistema,
-          config: { responseMimeType: "application/json" },
-        }),
-      );
+      const resposta = await generarConReintento(promptSistema);
 
       const trilhaJson = resposta.text;
 
@@ -91,6 +120,7 @@ app.post("/diagnostico", (req, res) => {
       console.warn(
         "⚠️ Falha na comunicação com o Gemini (Cota Excedida ou Timeout). Ativando Modo de Segurança...",
       );
+      console.warn(error);
 
       // Trilha padrão idêntica para o banco de dados não quebrar e o React continuar funcionando
       const trilhaMock = [
@@ -206,11 +236,9 @@ app.post("/evolucao", (req, res) => {
   const { id_estudante, notas, feedback_ia } = req.body;
 
   if (!id_estudante || notas === undefined || !feedback_ia) {
-    return res
-      .status(400)
-      .json({
-        error: "Campos id_estudante, notas e feedback_ia são obrigatórios.",
-      });
+    return res.status(400).json({
+      error: "Campos id_estudante, notas e feedback_ia são obrigatórios.",
+    });
   }
 
   const salvarProgresso = async () => {
